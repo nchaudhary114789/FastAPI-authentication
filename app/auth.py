@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import uuid
 from pwdlib import PasswordHash
 from pydantic_settings import BaseSettings
 
@@ -32,9 +33,11 @@ def create_access_token(user_id: int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
-
+    jti = str(uuid.uuid4())
+    
     payload = {
         "sub": str(user_id),
+        "jti": jti,
         "exp": expire
     }
 

@@ -1,21 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from ..rate_limit import limiter
 from sqlalchemy.orm import Session
-
+from ..auth import settings
 from ..database import get_db
-from ..models import User
+from ..models import User, RevokedToken
 from ..schemas import (
     UserCreate,
     UserResponse,
     LoginRequest,
     TokenResponse
 )
-
+import jwt
 from ..auth import (
     hash_password,
     verify_password,
     create_access_token
 )
+
+security = HTTPBearer()
 
 router = APIRouter(
     prefix="/auth",
@@ -99,4 +102,52 @@ def login(
     return {
         "access_token": access_token,
         "token_type": "bearer"
+    }
+
+@router.post("/logout")
+def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+
+    try:
+        payload =jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+        jti = payload.get("jti")
+        exp = payload.get("exp")
+
+        if not jti or not exp:
+            raise HTTPException(
+                status_code = 401,
+                detail = "Invalid Token"
+            )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code = 401,
+            detail = "Token has already expired"
+        )
+    except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code = 401,
+                detail = "Invalid Token"
+            )
+    existing_token = (
+        db.query(RevokedToken)
+        .filter(RevokedToken.jti == jti)
+        .first()
+    )
+    if not existing_token:
+        revoked_token = RevokedToken(
+            jti = jti,
+            expires_at = exp
+        )
+        db.add(revoked_token)
+        db.commit()
+
+    return {
+        "message": "Successfully logged out"
     }

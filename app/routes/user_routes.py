@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import jwt
 
 from ..database import get_db
-from ..models import User
+from ..models import User, RevokedToken
 from ..schemas import UserResponse
 from ..auth import settings
 
@@ -28,10 +28,10 @@ def get_current_user(
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
-
         user_id = payload.get("sub")
+        jti = payload.get("jti")
 
-        if user_id is None:
+        if user_id is None or jti is None:
             raise HTTPException(
                 status_code=401,
                 detail="Invalid token"
@@ -45,6 +45,16 @@ def get_current_user(
         raise HTTPException(
             status_code=401,
             detail="Invalid token"
+        )
+    revoked_token = (
+        db.query(RevokedToken)
+        .filter(RevokedToken.jti == jti)
+        .first()
+    )
+    if revoked_token:
+        raise HTTPException(
+            status_code = 401,
+            detail = "Token has been revoked"
         )
     user = (
         db.query(User)
