@@ -7,7 +7,7 @@ import jwt
 from ..database import get_db
 from ..models import User
 from ..schemas import UserResponse
-from ..auth import SECRET_KEY, ALGORITHM
+from ..auth import settings
 
 router = APIRouter(
     prefix="/users",
@@ -24,8 +24,8 @@ def get_current_user(
     try:
         payload = jwt.decode(
             token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
         )
 
         user_id = payload.get("sub")
