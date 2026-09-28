@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from ..rate_limit import limiter
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -62,7 +63,9 @@ def get_current_user(
     "/me",
     response_model=UserResponse
 )
+@limiter.limit("30/minute")
 def get_me(
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     return current_user
