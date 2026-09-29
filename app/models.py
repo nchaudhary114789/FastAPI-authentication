@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from .database import Base
 
 class User(Base):
@@ -20,6 +20,8 @@ class User(Base):
         Boolean,
         default=True
     )
+    failed_login_attempts = Column(Integer, default = 0)
+    locked_until = Column(DateTime(timezone = True), nullable = True)
 
 class RevokedToken(Base):
     __tablename__ = "revoked_tokens"

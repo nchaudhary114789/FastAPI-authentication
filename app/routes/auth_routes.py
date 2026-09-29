@@ -15,8 +15,10 @@ import jwt
 from ..auth import (
     hash_password,
     verify_password,
-    create_access_token
+    create_access_token,
+    create_refresh_token
 )
+from datetime import datetime, timedelta, timezone
 
 security = HTTPBearer()
 
@@ -83,26 +85,119 @@ def login(
             status_code=401,
             detail="Invalid email or password"
         )
+    now = datetime.now(timezone.utc)
+    if user.locked_until is not None:
+        if user.locked_until > now:
+            raise HTTPException(
+                status_code = 403,
+                detail = "Account is temporarily locked. Please try again later."
+            )
+        user.locked_until = None
+        user.failed_login_attempts = 0
+        db.commit()
+    if not user.is_active:
+        raise HTTPException(
+            status_code = 403,
+            detail = "User account is inactive"
+        )
+
     if not verify_password(
         login_data.password,
         user.hashed_password
     ):
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= 5:
+            user.locked_until = (
+                now + timedelta(minutes = 15)
+            )
+            db.commit()
+
         raise HTTPException(
             status_code = 401,
             detail="Invalid email or password"
         )
-    if not user.is_active:
-        raise HTTPException(
-            status_code=403,
-            detail="User account is inactive"
-        )
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    db.commit()
 
     access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
 
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer"
     }
+
+@router.post("/refresh")
+def refresh_access_token(
+   credentials: HTTPAuthorizationCredentials = Depends(security),
+   db: Session = Depends(get_db)
+):
+   token = credentials.credentials
+   try:
+       payload = jwt.decode(
+           token,
+           settings.SECRET_KEY,
+           algorithms=[settings.ALGORITHM]
+       )
+       
+       if payload.get("type") != "refresh":
+           raise HTTPException(
+               status_code=401,
+               detail="Invalid refresh token"
+           )
+       jti = payload.get("jti")
+       user_id = payload.get("sub")
+       if not jti or not user_id:
+           raise HTTPException(
+               status_code=401,
+               detail="Invalid refresh token"
+           )
+   except jwt.ExpiredSignatureError:
+       raise HTTPException(
+           status_code=401,
+           detail="Refresh token has expired"
+       )
+   except jwt.InvalidTokenError:
+       raise HTTPException(
+           status_code=401,
+           detail="Invalid refresh token"
+       )
+   
+   revoked_token = (
+       db.query(RevokedToken)
+       .filter(RevokedToken.jti == jti)
+       .first()
+   )
+   if revoked_token:
+       raise HTTPException(
+           status_code=401,
+           detail="Refresh token has been revoked"
+       )
+   
+   user = (
+       db.query(User)
+       .filter(User.id == int(user_id))
+       .first()
+   )
+   if not user:
+       raise HTTPException(
+           status_code=401,
+           detail="User not found"
+       )
+   
+   if not user.is_active:
+       raise HTTPException(
+           status_code=403,
+           detail="User account is inactive"
+       )
+   
+   access_token = create_access_token(user.id)
+   return {
+       "access_token": access_token,
+       "token_type": "bearer"
+   }
 
 @router.post("/logout")
 def logout(
