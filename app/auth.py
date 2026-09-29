@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     class Config:
         env_file = ".env"
@@ -38,6 +39,26 @@ def create_access_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
         "jti": jti,
+        "type":"access",
+        "exp": expire
+    }
+
+    return jwt.encode(
+        payload,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM
+    )
+
+def create_refresh_token(user_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
+    jti = str(uuid.uuid4())
+    
+    payload = {
+        "sub": str(user_id),
+        "jti": jti,
+        "type":"refresh",
         "exp": expire
     }
 
