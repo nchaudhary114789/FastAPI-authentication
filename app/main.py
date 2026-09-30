@@ -14,7 +14,7 @@ app = FastAPI(
     version = "1.0.0"
 )
 
-MAX_BODY_SIZE = 1 * 1024 * 1024  # 1 MB
+MAX_BODY_SIZE = 1 * 1024 * 1024  
 
 @app.middleware("http")
 async def limit_request_body_size(

@@ -26,3 +26,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 users.db
+*.pem

@@ -8,7 +8,7 @@ import jwt
 from ..database import get_db
 from ..models import User, RevokedToken
 from ..schemas import UserResponse
-from ..auth import settings
+from ..auth import PUBLIC_KEY, settings
 
 router = APIRouter(
     prefix="/users",
@@ -24,7 +24,7 @@ def get_current_user(
    try:
        payload = jwt.decode(
            token,
-           settings.SECRET_KEY,
+           PUBLIC_KEY,
            algorithms=[settings.ALGORITHM]
        )
        user_id = payload.get("sub")
@@ -80,3 +80,14 @@ def get_current_user(
            detail="User account is inactive"
        )
    return user
+
+@router.get(
+    "/me",
+    response_model=UserResponse
+)
+@limiter.limit("30/minute")
+def get_me(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    return current_user

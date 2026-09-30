@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from ..rate_limit import limiter
 from sqlalchemy.orm import Session
-from ..auth import settings
+from ..auth import settings, PUBLIC_KEY
 from ..database import get_db
 from ..models import User, RevokedToken
 from ..schemas import (
@@ -138,14 +138,14 @@ def refresh_access_token(
    try:
        payload = jwt.decode(
            token,
-           settings.SECRET_KEY,
+           PUBLIC_KEY,
            algorithms=[settings.ALGORITHM]
        )
        
        if payload.get("type") != "refresh":
            raise HTTPException(
                status_code=401,
-               detail="Invalid refresh token"
+               detail="Invalid token"
            )
        jti = payload.get("jti")
        user_id = payload.get("sub")
@@ -209,7 +209,7 @@ def logout(
     try:
         payload =jwt.decode(
             token,
-            settings.SECRET_KEY,
+            PUBLIC_KEY,
             algorithms=[settings.ALGORITHM]
         )
         jti = payload.get("jti")

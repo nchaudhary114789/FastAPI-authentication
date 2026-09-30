@@ -1,13 +1,12 @@
 from datetime import datetime, timedelta, timezone
-
+from pathlib import Path
 import jwt
 import uuid
 from pwdlib import PasswordHash
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    SECRET_KEY: str
-    ALGORITHM: str = "HS256"
+    ALGORITHM: str = "RS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
@@ -15,6 +14,16 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+PRIVATE_KEY = (
+    BASE_DIR / "private_key.pem"
+).read_text()
+
+PUBLIC_KEY = (
+    BASE_DIR / "public_key.pem"
+).read_text()
 
 password_hash = PasswordHash.recommended()
 
@@ -45,7 +54,7 @@ def create_access_token(user_id: int) -> str:
 
     return jwt.encode(
         payload,
-        settings.SECRET_KEY,
+        PRIVATE_KEY,
         algorithm=settings.ALGORITHM
     )
 
@@ -64,6 +73,6 @@ def create_refresh_token(user_id: int) -> str:
 
     return jwt.encode(
         payload,
-        settings.SECRET_KEY,
+        PRIVATE_KEY,
         algorithm=settings.ALGORITHM
     )
