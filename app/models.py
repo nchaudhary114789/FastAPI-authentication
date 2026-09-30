@@ -1,38 +1,23 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from .database import Base
+from datetime import datetime
+from typing import Optional
 
-class User(Base):
-    __tablename__="users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(
-        String,
-        unique=True,
-        index=True,
-        nullable=False
-    )
-    hashed_password = Column(
-        String,
-        nullable=False
-    )
-    is_active = Column(
-        Boolean,
-        default=True
-    )
-    failed_login_attempts = Column(Integer, default = 0)
-    locked_until = Column(DateTime(timezone = True), nullable = True)
-
-class RevokedToken(Base):
-    __tablename__ = "revoked_tokens"
-    id = Column(Integer, primary_key = True, index = True)
-    jti = Column(
-        String,
-        unique = True,
-        index = True,
-        nullable = False
-    )
-    expires_at = Column(
-        Integer,
-        nullable = False
-    )
+class User:
+   def __init__(
+       self,
+       name: str,
+       email: str,
+       hashed_password: str,
+       phone: Optional[str] = None,
+       role: str = "user",
+       is_active: bool = True,
+       failed_login_attempts: int = 0,
+       locked_until: Optional[datetime] = None
+   ):
+       self.name = name
+       self.email = email
+       self.hashed_password = hashed_password
+       self.phone = phone
+       self.role = role
+       self.is_active = is_active
+       self.failed_login_attempts = failed_login_attempts
+       self.locked_until = locked_until

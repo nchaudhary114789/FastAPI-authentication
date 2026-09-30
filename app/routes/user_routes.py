@@ -1,26 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from ..rate_limit import limiter
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-
 import jwt
-
-from ..database import get_db
-from ..models import User, RevokedToken
+from bson import ObjectId
+from ..database import (
+   users_collection,
+   revoked_tokens_collection
+)
 from ..schemas import UserResponse
 from ..auth import PUBLIC_KEY, settings
 
 router = APIRouter(
-    prefix="/users",
-    tags=["Users"]
+   prefix="/users",
+   tags=["Users"]
 )
 security = HTTPBearer()
 
 def get_current_user(
-   credentials: HTTPAuthorizationCredentials = Depends(security),
-   db: Session = Depends(get_db)
+   credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
    token = credentials.credentials
+   # ------------------------------------------
+   # 1. Decode and validate JWT
+   # ------------------------------------------
    try:
        payload = jwt.decode(
            token,
@@ -35,7 +37,7 @@ def get_current_user(
                status_code=401,
                detail="Invalid token"
            )
-       
+       # Only access tokens can access /users/me
        if token_type != "access":
            raise HTTPException(
                status_code=401,
@@ -51,30 +53,42 @@ def get_current_user(
            status_code=401,
            detail="Invalid token"
        )
-  
-   revoked_token = (
-       db.query(RevokedToken)
-       .filter(RevokedToken.jti == jti)
-       .first()
-   )
+   # ------------------------------------------
+   # 2. Check token revocation
+   # ------------------------------------------
+   revoked_token = revoked_tokens_collection.find_one({
+       "jti": jti
+   })
    if revoked_token:
        raise HTTPException(
            status_code=401,
            detail="Token has been revoked"
        )
-  
-   user = (
-       db.query(User)
-       .filter(User.id == int(user_id))
-       .first()
-   )
+   # ------------------------------------------
+   # 3. Convert JWT user ID to MongoDB ObjectId
+   # ------------------------------------------
+   try:
+       object_id = ObjectId(user_id)
+   except Exception:
+       raise HTTPException(
+           status_code=401,
+           detail="Invalid user ID"
+       )
+   # ------------------------------------------
+   # 4. Find user in MongoDB
+   # ------------------------------------------
+   user = users_collection.find_one({
+       "_id": object_id
+   })
    if not user:
        raise HTTPException(
            status_code=401,
            detail="User not found"
        )
-   
-   if not user.is_active:
+   # ------------------------------------------
+   # 5. Check whether account is active
+   # ------------------------------------------
+   if not user.get("is_active", True):
        raise HTTPException(
            status_code=403,
            detail="User account is inactive"
@@ -82,12 +96,18 @@ def get_current_user(
    return user
 
 @router.get(
-    "/me",
-    response_model=UserResponse
+   "/me",
+   response_model=UserResponse
 )
 @limiter.limit("30/minute")
 def get_me(
-    request: Request,
-    current_user: User = Depends(get_current_user)
+   request: Request,
+   current_user = Depends(get_current_user)
 ):
-    return current_user
+   return {
+       "id": str(current_user["_id"]),
+       "name": current_user["name"],
+       "email": current_user["email"],
+       "is_active": current_user["is_active"],
+       "role": current_user["role"]
+   }
