@@ -27,3 +27,4 @@ htmlcov/
 Thumbs.db
 users.db
 *.pem
+test_mongodb.py
