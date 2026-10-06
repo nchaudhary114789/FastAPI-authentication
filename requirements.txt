@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pymongo
+pyjwt
+cryptography
+passlib[argon2]
+pydantic[email]
+email-validator
+slowapi
+python-dotenv
