@@ -29,9 +29,6 @@ router = APIRouter(
    tags=["Authentication"]
 )
 
-# --------------------------------------------------
-# REGISTER
-# --------------------------------------------------
 @router.post(
    "/register",
    response_model=UserResponse,
@@ -76,9 +73,6 @@ def register(
        "role": new_user["role"]
    }
 
-# --------------------------------------------------
-# LOGIN
-# --------------------------------------------------
 @router.post(
    "/login",
    response_model=TokenResponse
@@ -99,15 +93,14 @@ def login(
    now = datetime.now(timezone.utc)
    locked_until = user.get("locked_until")
    if locked_until is not None:
-       # MongoDB may return a datetime object
-       # depending on how it was stored.
+       if locked_until.tzinfo is None:
+           locked_until = locked_until.replace(tzinfo = timezone.utc)
+
        if locked_until > now:
            raise HTTPException(
                status_code=403,
                detail="Account is temporarily locked. Please try again later."
            )
-       # Lockout period has expired.
-       # Reset failed attempts.
        users_collection.update_one(
            {"_id": user["_id"]},
            {
@@ -148,7 +141,6 @@ def login(
            status_code=401,
            detail="Invalid email or password"
        )
-   # Successful login
    users_collection.update_one(
        {"_id": user["_id"]},
        {
@@ -167,9 +159,6 @@ def login(
        "token_type": "bearer"
    }
 
-# --------------------------------------------------
-# REFRESH TOKEN
-# --------------------------------------------------
 @router.post("/refresh")
 def refresh_access_token(
    credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -184,7 +173,7 @@ def refresh_access_token(
        if payload.get("type") != "refresh":
            raise HTTPException(
                status_code=401,
-               detail="Invalid token"
+               detail="Token is invalid"
            )
        jti = payload.get("jti")
        user_id = payload.get("sub")
@@ -203,7 +192,6 @@ def refresh_access_token(
            status_code=401,
            detail="Invalid refresh token"
        )
-   # Check whether refresh token was revoked
    revoked_token = revoked_tokens_collection.find_one({
        "jti": jti
    })
@@ -212,7 +200,6 @@ def refresh_access_token(
            status_code=401,
            detail="Refresh token has been revoked"
        )
-   # Find user by MongoDB ObjectId
    from bson import ObjectId
    try:
        object_id = ObjectId(user_id)
@@ -242,9 +229,6 @@ def refresh_access_token(
        "token_type": "bearer"
    }
 
-# --------------------------------------------------
-# LOGOUT
-# --------------------------------------------------
 @router.post("/logout")
 def logout(
    credentials: HTTPAuthorizationCredentials = Depends(security)
