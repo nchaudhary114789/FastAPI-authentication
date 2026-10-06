@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Optional
+from typing import Optional, Literal
 
 class UserCreate(BaseModel):
    name: str = Field(
@@ -35,3 +35,20 @@ class TokenResponse(BaseModel):
    access_token: str
    refresh_token: str
    token_type: str
+
+class AdminUserUpdate(BaseModel):
+   name: str | None = Field(
+      default = None,
+      min_length = 2,
+      max_length = 50
+   )
+   phone: str | None = None
+   is_active: bool | None = None
+
+class RoleUpdate(BaseModel):
+   role: Literal["admin", "supervisor", "agent", "user"]
+
+class SupervisorUserUpdate(BaseModel):
+   name: str | None = None
+   email: EmailStr | None = None
+   is_active: bool | None = None
