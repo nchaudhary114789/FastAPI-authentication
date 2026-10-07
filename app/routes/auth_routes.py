@@ -7,7 +7,8 @@ from ..auth import (
    hash_password,
    verify_password,
    create_access_token,
-   create_refresh_token
+   create_refresh_token,
+   DUMMY_PASSWORD_HASH
 )
 from ..database import (
    users_collection,
@@ -85,6 +86,16 @@ def login(
    user = users_collection.find_one({
        "email": login_data.email
    })
+   if user:
+       password_valid = verify_password(
+           login_data.password,
+           user["hashed_password"]
+       )
+   else:
+       password_valid = verify_password(
+           login_data.password,
+           DUMMY_PASSWORD_HASH
+       )
    if not user:
        raise HTTPException(
            status_code=401,
@@ -94,8 +105,9 @@ def login(
    locked_until = user.get("locked_until")
    if locked_until is not None:
        if locked_until.tzinfo is None:
-           locked_until = locked_until.replace(tzinfo = timezone.utc)
-
+           locked_until = locked_until.replace(
+               tzinfo=timezone.utc
+           )
        if locked_until > now:
            raise HTTPException(
                status_code=403,
@@ -117,10 +129,7 @@ def login(
            status_code=403,
            detail="User account is inactive"
        )
-   if not verify_password(
-       login_data.password,
-       user["hashed_password"]
-   ):
+   if not password_valid:
        failed_attempts = (
            user.get("failed_login_attempts", 0) + 1
        )
@@ -158,7 +167,6 @@ def login(
        "refresh_token": refresh_token,
        "token_type": "bearer"
    }
-
 @router.post("/refresh")
 def refresh_access_token(
    credentials: HTTPAuthorizationCredentials = Depends(security)

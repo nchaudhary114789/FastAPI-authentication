@@ -182,7 +182,7 @@ def admin_delete_user(
    if not ObjectId.is_valid(user_id):
        raise HTTPException(
            status_code=400,
-           detail="Invalid user ID"
+           detail="Invalid User ID"
        )
    if str(current_user["_id"]) == user_id:
        raise HTTPException(
@@ -195,7 +195,7 @@ def admin_delete_user(
    if result.deleted_count == 0:
        raise HTTPException(
            status_code=404,
-           detail="User not found"
+           detail="User not Found"
        )
    return {
        "message": "User deleted successfully"
@@ -214,7 +214,6 @@ def admin_update_role(
            status_code=400,
            detail="Invalid user ID"
        )
-   # Prevent admin from changing their own role
    if str(current_user["_id"]) == user_id:
        raise HTTPException(
            status_code=400,

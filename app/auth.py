@@ -31,6 +31,10 @@ PUBLIC_KEY = (
 
 password_hash = PasswordHash.recommended()
 
+DUMMY_PASSWORD_HASH = password_hash.hash(
+    "dummy-password-for-timing-protection"
+)
+
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
 
