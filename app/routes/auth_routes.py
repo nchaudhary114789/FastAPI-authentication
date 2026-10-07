@@ -19,7 +19,8 @@ from ..schemas import (
    UserCreate,
    UserResponse,
    LoginRequest,
-   TokenResponse
+   TokenResponse,
+   MessageResponse
 )
 import jwt
 from datetime import datetime, timedelta, timezone
@@ -32,7 +33,7 @@ router = APIRouter(
 
 @router.post(
    "/register",
-   response_model=UserResponse,
+   response_model=MessageResponse,
    status_code=status.HTTP_201_CREATED
 )
 @limiter.limit("5/minute")
@@ -44,10 +45,9 @@ def register(
        "email": user_data.email
    })
    if existing_user:
-       raise HTTPException(
-           status_code=400,
-           detail="Email already registered"
-       )
+       return {
+           "message": "Registration request processed successfully."
+       }
    new_user = {
        "name": user_data.name,
        "email": user_data.email,

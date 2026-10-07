@@ -16,7 +16,9 @@ def get_current_user(
        payload = jwt.decode(
            token,
            PUBLIC_KEY,
-           algorithms=[settings.ALGORITHM]
+           algorithms=[settings.ALGORITHM],
+           issuer = settings.JWT_ISSUER,
+           audience = settings.JWT_AUDIENCE
        )
        user_id = payload.get("sub")
        jti = payload.get("jti")

@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    JWT_ISSUER: str 
+    JWT_AUDIENCE: str 
+
     MONGODB_URL: str
     MONGODB_DATABASE: str
     FERNET_KEY: str
@@ -47,7 +50,7 @@ def verify_password(
         hashed_password
     )
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
@@ -57,7 +60,9 @@ def create_access_token(user_id: int) -> str:
         "sub": str(user_id),
         "jti": jti,
         "type":"access",
-        "exp": expire
+        "exp": expire,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE
     }
 
     return jwt.encode(
@@ -66,7 +71,7 @@ def create_access_token(user_id: int) -> str:
         algorithm=settings.ALGORITHM
     )
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
@@ -76,7 +81,9 @@ def create_refresh_token(user_id: int) -> str:
         "sub": str(user_id),
         "jti": jti,
         "type":"refresh",
-        "exp": expire
+        "exp": expire,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE
     }
 
     return jwt.encode(

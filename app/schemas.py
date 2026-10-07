@@ -52,3 +52,6 @@ class SupervisorUserUpdate(BaseModel):
    name: str | None = None
    email: EmailStr | None = None
    is_active: bool | None = None
+
+class MessageResponse(BaseModel):
+   message: str
