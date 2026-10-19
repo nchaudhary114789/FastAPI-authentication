@@ -17,6 +17,22 @@ class Settings(BaseSettings):
     MONGODB_DATABASE: str
     FERNET_KEY: str
 
+    ENABLE_API_DOCS: bool = True
+    ENABLE_HTTPS_REDIRECT: bool = False
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str
+    SMTP_PASSWORD: str
+    SMTP_FROM_EMAIL: str
+    SMTP_USE_TLS: bool = True
+    EMAIL_VERIFICATION_EXPIRE_MINUTES: int = 30
+
+    EMAIL_VERIFICATION_BASE_URL: str = (
+        "http://127.0.0.1:8000/auth/verify-email"
+    )
+
     class Config:
         env_file = ".env"
 
