@@ -15,7 +15,7 @@ def up(db):
    for user in existing_users:
        user_id = str(user["_id"])
        base_username = "legacy_" + re.sub(
-           r"[^a-zA-Z0-9_]",
+           r"\W",
            "",
            user_id
        )
