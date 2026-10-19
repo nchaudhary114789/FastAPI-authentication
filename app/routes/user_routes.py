@@ -32,11 +32,17 @@ security = HTTPBearer()
 @limiter.limit("30/minute")
 def get_me(
    request: Request,
-   current_user = Depends(get_current_user)
+   current_user=Depends(get_current_user)
 ):
    return {
        "id": str(current_user["_id"]),
-       "name": current_user["name"],
+       "username": current_user.get("username", ""),
+       "first_name": current_user.get("first_name", ""),
+       "last_name": current_user.get("last_name", ""),
+       "name": current_user.get(
+           "name",
+           ""
+       ),
        "email": current_user["email"],
        "is_active": current_user["is_active"],
        "role": current_user["role"]
