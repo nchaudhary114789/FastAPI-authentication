@@ -1,6 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pymongo.errors import DuplicateKeyError
 from ..rate_limit import limiter
+from urllib.parse import urlencode
+from ..email_service import send_verification_email
+from ..email_verification import create_verification_token, consume_verification_token
 from ..auth import (
    settings,
    PUBLIC_KEY,
@@ -10,6 +15,7 @@ from ..auth import (
    create_refresh_token,
    DUMMY_PASSWORD_HASH
 )
+from ..audit import log_audit_event
 from ..database import (
    users_collection,
    revoked_tokens_collection
@@ -41,16 +47,42 @@ def register(
    request: Request,
    user_data: UserCreate
 ):
-   existing_user = users_collection.find_one({
-       "email": user_data.email
+   request_id = getattr(
+       request.state,
+       "request_id",
+       None
+   )
+   existing_username = users_collection.find_one({
+       "username": user_data.username
    })
-   if existing_user:
+   existing_email = users_collection.find_one({
+       "email": str(user_data.email)
+   })
+   if existing_username or existing_email:
+       log_audit_event(
+           event="registration",
+           outcome="failure",
+           request_id=request_id,
+           details={
+               "reason": "duplicate_registration"
+           }
+       )
        return {
-           "message": "Registration request processed successfully."
+           "message": (
+               "Registration request processed successfully. "
+               "If eligible, a verification email will be sent."
+           )
        }
+   now = datetime.now(timezone.utc)
    new_user = {
-       "name": user_data.name,
-       "email": user_data.email,
+       "username": user_data.username,
+       "first_name": user_data.first_name,
+       "last_name": user_data.last_name,
+       "name": (
+           f"{user_data.first_name} "
+           f"{user_data.last_name}"
+       ),
+       "email": str(user_data.email),
        "hashed_password": hash_password(
            user_data.password
        ),
@@ -61,75 +93,91 @@ def register(
        ),
        "role": "user",
        "is_active": True,
+       "is_verified": False,
        "failed_login_attempts": 0,
-       "locked_until": None
+       "locked_until": None,
+       "created_at": now,
+       "updated_at": now,
+       "last_login": None
    }
-   result = users_collection.insert_one(new_user)
-   new_user["id"] = str(result.inserted_id)
-   return {
-       "id": new_user["id"],
-       "name": new_user["name"],
-       "email": new_user["email"],
-       "is_active": new_user["is_active"],
-       "role": new_user["role"]
-   }
-
-@router.post(
-   "/login",
-   response_model=TokenResponse
-)
-@limiter.limit("5/minute")
-def login(
-   request: Request,
-   login_data: LoginRequest
-):
-   user = users_collection.find_one({
-       "email": login_data.email
-   })
-   if user:
-       password_valid = verify_password(
-           login_data.password,
-           user["hashed_password"]
-       )
-   else:
-       password_valid = verify_password(
-           login_data.password,
-           DUMMY_PASSWORD_HASH
-       )
-   if not user:
-       raise HTTPException(
-           status_code=401,
-           detail="Invalid email or password"
-       )
-   now = datetime.now(timezone.utc)
-   locked_until = user.get("locked_until")
-   if locked_until is not None:
-       if locked_until.tzinfo is None:
-           locked_until = locked_until.replace(
-               tzinfo=timezone.utc
-           )
-       if locked_until > now:
-           raise HTTPException(
-               status_code=403,
-               detail="Account is temporarily locked. Please try again later."
-           )
-       users_collection.update_one(
-           {"_id": user["_id"]},
-           {
-               "$set": {
-                   "locked_until": None,
-                   "failed_login_attempts": 0
-               }
+   try:
+       result = users_collection.insert_one(new_user)
+   except DuplicateKeyError:
+       log_audit_event(
+           event="registration",
+           outcome="failure",
+           request_id=request_id,
+           details={
+               "reason": "duplicate_registration"
            }
        )
-       user["locked_until"] = None
-       user["failed_login_attempts"] = 0
-   if not user.get("is_active", True):
-       raise HTTPException(
-           status_code=403,
-           detail="User account is inactive"
+       return {
+           "message": (
+               "Registration request processed successfully. "
+               "If eligible, a verification email will be sent."
+           )
+       }
+   user_id = str(result.inserted_id)
+   try:
+       verification_token = create_verification_token(
+           str(user_data.email)
        )
-   if not password_valid:
+       verification_url = (
+           f"{settings.EMAIL_VERIFICATION_BASE_URL}"
+           f"?{urlencode({'token': verification_token})}"
+       )
+       send_verification_email(
+           recipient_email=str(user_data.email),
+           verification_url=verification_url
+       )
+   except Exception:
+       log_audit_event(
+           event="registration",
+           outcome="failure",
+           request_id=request_id,
+           user_id=user_id,
+           details={
+               "reason": "verification_email_delivery_failed"
+           }
+       )
+       raise HTTPException(
+           status_code=503,
+           detail=(
+               "Registration could not be completed. "
+               "Please try again later."
+           )
+       )
+   log_audit_event(
+       event="registration",
+       outcome="success",
+       request_id=request_id,
+       user_id=user_id,
+       details={
+           "role": "user"
+       }
+   )
+   return {
+       "message": (
+           "Registration successful. "
+           "Please check your email to verify your account."
+       )
+   }
+
+def verify_login_password(user, password: str) -> bool:
+   if user:
+       return verify_password(
+           password,
+           user["hashed_password"]
+       )
+   verify_password(
+       password,
+       DUMMY_PASSWORD_HASH
+   )
+   return False
+
+def record_failed_login(user, request_id: str | None) -> None:
+   if user:
+       now = datetime.now(timezone.utc)
        failed_attempts = (
            user.get("failed_login_attempts", 0) + 1
        )
@@ -142,26 +190,149 @@ def login(
            )
        users_collection.update_one(
            {"_id": user["_id"]},
-           {
-               "$set": update_data
-           }
+           {"$set": update_data}
        )
+       if failed_attempts == 5:
+           log_audit_event(
+               event="account_lockout",
+               outcome="success",
+               request_id=request_id,
+               user_id=str(user["_id"]),
+               details={
+                   "reason": "too_many_failed_attempts"
+               }
+           )
+   log_audit_event(
+       event="login",
+       outcome="failure",
+       request_id=request_id,
+       user_id=str(user["_id"]) if user else None,
+       details={
+           "reason": "invalid_credentials"
+       }
+   )
+
+def is_account_locked(user) -> bool:
+   locked_until = user.get("locked_until")
+   if locked_until is None:
+       return False
+   if locked_until.tzinfo is None:
+       locked_until = locked_until.replace(
+           tzinfo=timezone.utc
+       )
+   now = datetime.now(timezone.utc)
+   if locked_until > now:
+       return True
+   users_collection.update_one(
+       {"_id": user["_id"]},
+       {
+           "$set": {
+               "locked_until": None,
+               "failed_login_attempts": 0
+           }
+       }
+   )
+   return False
+
+def audit_login_failure(
+   request_id: str | None,
+   user_id: str,
+   reason: str
+) -> None:
+   log_audit_event(
+       event="login",
+       outcome="failure",
+       request_id=request_id,
+       user_id=user_id,
+       details={
+           "reason": reason
+       }
+   )
+
+@router.post(
+   "/login",
+   response_model=TokenResponse
+)
+@limiter.limit("5/minute")
+def login(
+   request: Request,
+   login_data: LoginRequest
+):
+   request_id = getattr(
+       request.state,
+       "request_id",
+       None
+   )
+   user = users_collection.find_one({
+       "email": login_data.email
+   })
+   password_valid = verify_login_password(
+       user,
+       login_data.password
+   )
+   if not user or not password_valid:
+       record_failed_login(user, request_id)
        raise HTTPException(
            status_code=401,
            detail="Invalid email or password"
        )
+   user_id = str(user["_id"])
+   if is_account_locked(user):
+       audit_login_failure(
+           request_id,
+           user_id,
+           "account_temporarily_locked"
+       )
+       raise HTTPException(
+           status_code=403,
+           detail=(
+               "Account is temporarily locked. "
+               "Please try again later."
+           )
+       )
+   if not user.get("is_active", True):
+       audit_login_failure(
+           request_id,
+           user_id,
+           "inactive_account"
+       )
+       raise HTTPException(
+           status_code=403,
+           detail="User account is inactive"
+       )
+   if not user.get("is_verified", False):
+        audit_login_failure(
+            request_id,
+            user_id,
+            "email_not_verified"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email before logging in."
+        )
+   now = datetime.now(timezone.utc)
    users_collection.update_one(
        {"_id": user["_id"]},
        {
            "$set": {
                "failed_login_attempts": 0,
-               "locked_until": None
+               "locked_until": None,
+               "last_login": now,
+               "updated_at": now
            }
        }
    )
-   user_id = str(user["_id"])
    access_token = create_access_token(user_id)
    refresh_token = create_refresh_token(user_id)
+   log_audit_event(
+       event="login",
+       outcome="success",
+       request_id=request_id,
+       user_id=user_id,
+       details={
+           "authentication_method": "password"
+       }
+   )
    return {
        "access_token": access_token,
        "refresh_token": refresh_token,
@@ -278,4 +449,32 @@ def logout(
        })
    return {
        "message": "Successfully logged out"
+   }
+
+@router.get("/verify-email")
+def verify_email(token: str = Query(..., min_length=20)):
+   email = consume_verification_token(token)
+   if not email:
+       raise HTTPException(
+           status_code=400,
+           detail="Verification link is invalid or has expired."
+       )
+   result = users_collection.update_one(
+       {
+           "email": email,
+           "is_verified": False
+       },
+       {
+           "$set": {
+               "is_verified": True,
+               "updated_at": datetime.now(timezone.utc)
+           }
+       }
+   )
+   if result.matched_count == 0:
+       return {
+           "message": "Email verification could not be completed. The account may already be verified."
+       }
+   return {
+       "message": "Email verified successfully. You can now log in."
    }
